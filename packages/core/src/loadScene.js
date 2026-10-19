@@ -454,6 +454,32 @@ function createMeteor3DInstance({ sceneManager, persistenceManager, resizeObserv
          */
         clearLines: () => sceneManager.lineManager.clear(),
 
+        // ========== 场景导出 ==========
+        /**
+         * 导出当前场景为 JSON 文本（不触发下载）。
+         * @param {Object} [options] - { allowIncomplete?: boolean, pretty?: boolean }
+         * @returns {{format:string, document:Object, content:string, fileName:string, mimeType:string}}
+         * @example const { content, fileName } = instance.exportSceneJSON();
+         */
+        exportSceneJSON: (options) => persistenceManager.exportSceneJSON(options),
+
+        /**
+         * 导出当前场景为 XML 文本（不触发下载）。
+         * @param {Object} [options] - { allowIncomplete?: boolean }
+         * @returns {{format:string, document:Object, content:string, fileName:string, mimeType:string}}
+         * @example const { content, fileName } = instance.exportSceneXML();
+         */
+        exportSceneXML: (options) => persistenceManager.exportSceneXML(options),
+
+        /**
+         * 导出并触发浏览器下载。
+         * @param {'json'|'xml'} [format='json'] - 导出格式
+         * @param {Object} [options] - { allowIncomplete?: boolean }
+         * @returns {{format:string, document:Object, content:string, fileName:string, mimeType:string}}
+         * @example instance.downloadScene('xml');
+         */
+        downloadScene: (format, options) => persistenceManager.downloadScene(format, options),
+
         // ========== 生命周期 ==========
         /** 销毁实例，释放资源 */
         dispose: () => {

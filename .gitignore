@@ -14,6 +14,9 @@ Thumbs.db
 #web 包
 dist/
 
+# Vite 依赖预构建缓存（METEOR3D_VITE_CACHE_DIR 指定后产生）
+.vite-cache/
+
 #测试文件
 testFile/
 

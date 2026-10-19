@@ -6,6 +6,14 @@ import { TilesRenderer } from '3d-tiles-renderer';
 import { message } from './utils/message.js';
 import { generateBid } from './BidRegistry.js';
 import { createGaussianSplatCollider } from './GaussianSplatCollider.js';
+import {
+    SCENE_MIME_TYPES,
+    buildSceneDocument,
+    buildSceneFileName,
+    downloadTextFile,
+    sceneDocumentToJSON,
+    sceneDocumentToXML
+} from './SceneExporter.js';
 
 /**
  * 持久化管理器
@@ -1337,6 +1345,46 @@ export class PersistenceManager {
     }
 
     /**
+     * 生成当前场景的完整快照（对象 + 元数据），不产生任何网络请求。
+     *
+     * 保存到后端和导出到本地文件共用这一份快照，避免两条链路渐渐分叉。
+     *
+     * @param {Object} [options] - 快照选项
+     * @param {boolean} [options.allowIncomplete=false] - 是否允许在场景未完整恢复时仍然生成快照
+     * @returns {{objects: Array<Object>, metadata: Object}} 场景快照
+     * @throws {Error} 场景未完整加载且未显式允许时抛出
+     */
+    buildSceneSnapshot(options = {}) {
+        const allowIncomplete = options.allowIncomplete === true;
+        if (!this.sceneManager?.isReady && !allowIncomplete) {
+            throw new Error('场景尚未完整加载，拒绝导出或保存不完整的场景数据');
+        }
+
+        const sceneManager = this.sceneManager;
+        const objects = (sceneManager?.objects || []).map((object) => this.serializeObject(object));
+        const nodeGraph = this.serializeSceneGraph();
+        const gisConfig = sceneManager?.gisConfig
+            ? { ...sceneManager.gisConfig, gridVisible: sceneManager.gridVisible }
+            : null;
+
+        const metadata = {
+            sceneId: this.currentSceneId,
+            name: this.editorStore?.sceneMetadata?.name || '未命名场景',
+            description: this.editorStore?.sceneMetadata?.description || '',
+            cameraFar: this.editorStore?.sceneMetadata?.cameraFar || 1000000,
+            lastModified: Date.now(),
+            objectCount: objects.length,
+            environmentUrl: sceneManager?.environmentUrl || null,
+            lightingConfig: sceneManager?.lightingManager?.getConfig?.() ?? null,
+            gisConfig,
+            nodeGraph,
+            deletedSourceNodes: this.serializeDeletedSourceNodes(nodeGraph)
+        };
+
+        return { objects, metadata };
+    }
+
+    /**
      * 保存整个场景
      * 保存所有对象和场景元数据
      * @param {Object} [options] - 保存选项
@@ -1344,9 +1392,8 @@ export class PersistenceManager {
      */
     async saveScene(options = {}) {
         const allowIncomplete = options.allowIncomplete === true;
-        if (!this.sceneManager?.isReady && !allowIncomplete) {
-            throw new Error('场景尚未完整加载，拒绝保存不完整的场景数据');
-        }
+        const snapshot = this.buildSceneSnapshot({ allowIncomplete });
+
         if (!this.dbManager) {
             throw new Error('PersistenceManager.saveScene requires a dbManager');
         }
@@ -1355,44 +1402,101 @@ export class PersistenceManager {
             return;
         }
 
-        // 序列化所有对象
-        const serializedObjects = this.sceneManager.objects.map(obj => this.serializeObject(obj));
-
-        // 获取当前环境贴图 URL (需要 SceneManager 支持获取)
-        const nodeGraph = this.serializeSceneGraph();
-        const environmentUrl = this.sceneManager.environmentUrl || null;
-        const gisConfig = this.sceneManager.gisConfig
-            ? { ...this.sceneManager.gisConfig, gridVisible: this.sceneManager.gridVisible }
-            : null;
-
-        // 获取场景元数据从 Store
-        const name = this.editorStore?.sceneMetadata?.name || '未命名场景';
-        const description = this.editorStore?.sceneMetadata?.description || '';
-        const cameraFar = this.editorStore?.sceneMetadata?.cameraFar || 1000000;
+        const { objects, metadata } = snapshot;
 
         // 批量保存到后端
         await this.dbManager.saveScene({
-            objects: serializedObjects,
-            id: this.currentSceneId,
-            name: name,
-            description: description,
-            cameraFar: cameraFar,
-            lastModified: Date.now(),
-            objectCount: this.sceneManager.objects.length,
-            environmentUrl: environmentUrl, // 保存环境贴图 URL
-            lightingConfig: this.sceneManager.lightingManager?.getConfig(),
-            gisConfig,
-            nodeGraph,
-            deletedSourceNodes: this.serializeDeletedSourceNodes(nodeGraph)
+            objects,
+            id: metadata.sceneId,
+            name: metadata.name,
+            description: metadata.description,
+            cameraFar: metadata.cameraFar,
+            lastModified: metadata.lastModified,
+            objectCount: metadata.objectCount,
+            environmentUrl: metadata.environmentUrl, // 保存环境贴图 URL
+            lightingConfig: metadata.lightingConfig,
+            gisConfig: metadata.gisConfig,
+            nodeGraph: metadata.nodeGraph,
+            deletedSourceNodes: metadata.deletedSourceNodes
         });
 
         // 更新 objectMap
-        serializedObjects.forEach(data => {
+        objects.forEach(data => {
             const obj = this.sceneManager.objects.find(o => o.userData.bid === data.id);
             if (obj) {
                 this.objectMap.set(obj.userData.bid, data.id);
             }
         });
+    }
+
+    /**
+     * 导出当前场景，返回文本内容与建议文件名（不会触发下载）。
+     *
+     * @param {'json'|'xml'} [format='json'] - 导出格式
+     * @param {Object} [options] - 导出选项
+     * @param {boolean} [options.allowIncomplete=false] - 是否允许导出未完整恢复的场景
+     * @param {boolean} [options.pretty=true] - JSON 是否格式化输出
+     * @param {number|Date} [options.now] - 覆盖导出时刻（便于测试与可复现导出）
+     * @returns {{format:string, document:Object, content:string, fileName:string, mimeType:string}}
+     * @throws {Error} 格式不支持，或场景未完整加载且未显式允许
+     */
+    exportScene(format = 'json', options = {}) {
+        const snapshot = this.buildSceneSnapshot(options);
+        const document = buildSceneDocument(snapshot, options);
+        const normalized = String(format).toLowerCase();
+
+        if (normalized === 'json') {
+            return {
+                format: 'json',
+                document,
+                content: sceneDocumentToJSON(document, options),
+                fileName: buildSceneFileName(document, 'json'),
+                mimeType: SCENE_MIME_TYPES.json
+            };
+        }
+
+        if (normalized === 'xml') {
+            return {
+                format: 'xml',
+                document,
+                content: sceneDocumentToXML(document, options),
+                fileName: buildSceneFileName(document, 'xml'),
+                mimeType: SCENE_MIME_TYPES.xml
+            };
+        }
+
+        throw new Error(`不支持的导出格式: ${format}（可选 json / xml）`);
+    }
+
+    /**
+     * 导出为 JSON 文本（不触发下载）。
+     * @param {Object} [options] - 同 exportScene
+     * @returns {{format:string, document:Object, content:string, fileName:string, mimeType:string}}
+     */
+    exportSceneJSON(options = {}) {
+        return this.exportScene('json', options);
+    }
+
+    /**
+     * 导出为 XML 文本（不触发下载）。
+     * @param {Object} [options] - 同 exportScene
+     * @returns {{format:string, document:Object, content:string, fileName:string, mimeType:string}}
+     */
+    exportSceneXML(options = {}) {
+        return this.exportScene('xml', options);
+    }
+
+    /**
+     * 导出并触发浏览器下载。
+     *
+     * @param {'json'|'xml'} [format='json'] - 导出格式
+     * @param {Object} [options] - 同 exportScene
+     * @returns {{format:string, document:Object, content:string, fileName:string, mimeType:string}} 导出结果
+     */
+    downloadScene(format = 'json', options = {}) {
+        const result = this.exportScene(format, options);
+        downloadTextFile(result.content, result.fileName, result.mimeType);
+        return result;
     }
 
     /**

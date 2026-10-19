@@ -20,6 +20,22 @@
       <button v-if="!canSave" class="unlock-btn" @click="openUnlockModal" title="权限解锁">🔒 权限解锁</button>
       <button v-if="canSave" type="button" @click="save(false)" class="save-btn" :disabled="sceneDeleted">{{ sceneDeleted ? '场景已删除，保存已停止' : '💾 保存' }}</button>
     </div>
+
+    <div class="group export-group">
+      <button
+        type="button"
+        class="export-btn"
+        :disabled="exporting"
+        :title="'把当前场景导出为本地文件（JSON / XML），不影响服务器数据'"
+        @click.stop="toggleExportMenu"
+      >
+        ⬇ 导出 <span class="caret">▾</span>
+      </button>
+      <div v-if="showExportMenu" class="export-menu" @click.stop>
+        <button type="button" @click="exportScene('json')" title="与 /api/scene/save 请求体同构，可直接回灌">导出 JSON</button>
+        <button type="button" @click="exportScene('xml')" title="同构映射的 XML，便于外部系统解析">导出 XML</button>
+      </div>
+    </div>
     
     <BatchLoaderDialog v-model:visible="showBatchLoader" />
 
@@ -60,6 +76,8 @@ import BatchLoaderDialog from './BatchLoaderDialog.vue';
 
 const editorStore = useEditorStore();
 const showBatchLoader = ref(false);
+const showExportMenu = ref(false);
+const exporting = ref(false);
 const cameraMode = ref('orbit');
 const transformMode = ref('select');
 
@@ -126,7 +144,63 @@ const toggleTransformMode = (mode) => {
   setMode(transformMode.value === mode ? 'select' : mode);
 };
 
+/* ---------------- 场景导出 ---------------- */
+
+const closeExportMenu = () => {
+  showExportMenu.value = false;
+};
+
+const toggleExportMenu = () => {
+  if (exporting.value) return;
+  showExportMenu.value = !showExportMenu.value;
+};
+
+// 点击下拉菜单以外的区域时收起菜单
+const handleDocumentClick = (event) => {
+  if (!showExportMenu.value) return;
+  if (event.target?.closest?.('.export-group')) return;
+  closeExportMenu();
+};
+
+/**
+ * 导出当前场景到本地文件。
+ * 导出是只读操作：场景未完整加载时仍然允许，但会明确提示内容可能不完整。
+ */
+const exportScene = (format) => {
+  closeExportMenu();
+
+  const persistenceManager = window.editor?.persistenceManager;
+  const sceneManager = window.editor?.sceneManager;
+  if (!persistenceManager) {
+    message.warning('场景尚未就绪，暂时无法导出');
+    return;
+  }
+
+  const allowIncomplete = !sceneManager?.isReady;
+  const label = format === 'xml' ? 'XML' : 'JSON';
+
+  exporting.value = true;
+  try {
+    const result = persistenceManager.downloadScene(format, { allowIncomplete });
+    const objectCount = result.document?.metadata?.objectCount ?? 0;
+    if (allowIncomplete) {
+      message.warning(`已导出 ${label}（场景未完整加载，内容可能不完整）：${result.fileName}`, 6000);
+    } else {
+      message.success(`已导出 ${label}（${objectCount} 个对象）：${result.fileName}`);
+    }
+  } catch (error) {
+    console.error('场景导出失败:', error);
+    message.error(error.message || '场景导出失败');
+  } finally {
+    exporting.value = false;
+  }
+};
+
 const onKeyDown = (event) => {
+  if (event.key === 'Escape' && showExportMenu.value) {
+    closeExportMenu();
+    return;
+  }
   if (event.key === 'Escape' && transformMode.value !== 'select') {
     setMode('select');
   }
@@ -196,6 +270,7 @@ let autoSaveTimer = null;
 onMounted(() => {
   window.addEventListener('transform-mode-changed', onTransformModeChanged);
   window.addEventListener('keydown', onKeyDown);
+  document.addEventListener('click', handleDocumentClick);
   transformMode.value = window.editor?.transformManager?.getMode() || 'select';
 
   autoSaveTimer = setInterval(() => {
@@ -208,6 +283,7 @@ onMounted(() => {
 onUnmounted(() => {
   window.removeEventListener('transform-mode-changed', onTransformModeChanged);
   window.removeEventListener('keydown', onKeyDown);
+  document.removeEventListener('click', handleDocumentClick);
   if (autoSaveTimer) {
     clearInterval(autoSaveTimer);
   }
@@ -267,6 +343,59 @@ button.active {
 
 .unlock-btn:hover {
   background: #cf9236;
+}
+
+/* ---------- 导出下拉菜单 ---------- */
+
+.export-group {
+  position: relative;
+}
+
+.export-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.export-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.caret {
+  font-size: 10px;
+  line-height: 1;
+}
+
+.export-menu {
+  position: absolute;
+  top: calc(100% + 4px);
+  right: 0;
+  z-index: 30;
+  min-width: 132px;
+  padding: 4px;
+  background: #2a2a2a;
+  border: 1px solid #444;
+  border-radius: 4px;
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.45);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.export-menu button {
+  width: 100%;
+  padding: 6px 10px;
+  background: transparent;
+  color: #ddd;
+  text-align: left;
+  border-radius: 3px;
+  white-space: nowrap;
+}
+
+.export-menu button:hover {
+  background: #0066cc;
+  color: #fff;
 }
 
 .modal-overlay {

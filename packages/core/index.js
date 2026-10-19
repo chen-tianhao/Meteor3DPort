@@ -13,3 +13,15 @@ export { RainManager } from './src/RainManager.js';
 
 // SDK 入口
 export { loadScene } from './src/loadScene.js';
+
+// 场景导出（JSON / XML）
+export {
+    SCENE_FORMAT,
+    SCENE_FORMAT_VERSION,
+    SCENE_MIME_TYPES,
+    buildSceneDocument,
+    sceneDocumentToJSON,
+    sceneDocumentToXML,
+    buildSceneFileName,
+    downloadTextFile
+} from './src/SceneExporter.js';
