@@ -26,6 +26,10 @@ export const useEditorStore = defineStore('editor', () => {
     // 通过递增此值来通知依赖组件（如 SceneTree）强制刷新。
     const treeVersion = ref(0);
 
+    // 操作偏好：拖入模型时是否把包围盒下边缘对齐到 Y=0。
+    // 纯编辑期偏好，不写入场景数据，刷新页面后回到默认值（关闭）。
+    const placeOnGround = ref(false);
+
     function setSceneMetadata(metadata) {
         sceneMetadata.value = { ...sceneMetadata.value, ...metadata };
         // 每次设置场景元数据时重置解锁状态
@@ -77,6 +81,7 @@ export const useEditorStore = defineStore('editor', () => {
         isUnlocked,
         allowPartialSave,
         treeVersion,
+        placeOnGround,
         setSceneMetadata,
         allowPartialSceneSave,
         resetPartialSavePermission,

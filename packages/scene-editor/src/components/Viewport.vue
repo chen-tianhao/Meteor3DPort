@@ -31,7 +31,7 @@
 import { ref, onMounted, onBeforeUnmount } from 'vue';
 import { useRoute } from 'vue-router';
 import * as THREE from 'three';
-import { SceneManager, PersistenceManager, DBManager } from '@meteor3d/core';
+import { SceneManager, PersistenceManager, DBManager, alignBottomToY } from '@meteor3d/core';
 import { API_BASE_URL } from '../config';
 import { InputManager } from '../core/InputManager';
 import { TransformManager } from '../core/TransformManager';
@@ -270,6 +270,12 @@ const onDrop = async (event) => {
       // 使用统一的放置位置计算
       const dropPosition = getDropPosition(event);
       object.position.copy(dropPosition);
+
+      // 操作偏好「地平面放置」：让模型包围盒的下边缘严格对齐 Y=0，
+      // 而不是让模型原点落在拖放点。关闭时保持原有行为。
+      if (editorStore.placeOnGround) {
+        alignBottomToY(object, 0);
+      }
     } catch (error) {
       console.error('Failed to load GLTF model:', error);
       return;

@@ -152,6 +152,26 @@
       </div>
     </div>
     
+    <div class="section">
+      <h4>操作偏好</h4>
+      <div class="prop-row switch-row">
+        <label for="place-on-ground">地平面放置</label>
+        <div class="switch-container">
+          <label class="switch">
+            <input id="place-on-ground" type="checkbox" v-model="editorStore.placeOnGround">
+            <span class="slider"></span>
+          </label>
+          <span class="switch-label">{{ editorStore.placeOnGround ? '开启' : '关闭' }}</span>
+        </div>
+      </div>
+      <div class="hint" v-if="editorStore.placeOnGround">
+        拖入模型时，自动把模型包围盒的下边缘对齐到 Y=0，让模型站在地面上。
+      </div>
+      <div class="hint" v-else>
+        开启后，新拖入的模型以包围盒下边缘对齐 Y=0，而不是以模型原点对齐拖放点。
+      </div>
+    </div>
+
     <div class="debug-info">
       <small>这里是场景级别的全局配置</small>
     </div>

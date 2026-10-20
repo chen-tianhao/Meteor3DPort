@@ -25,3 +25,6 @@ export {
     buildSceneFileName,
     downloadTextFile
 } from './src/SceneExporter.js';
+
+// 地平面放置（包围盒下边缘对齐）
+export { alignBottomToY, getBottomY } from './src/utils/groundPlacement.js';
